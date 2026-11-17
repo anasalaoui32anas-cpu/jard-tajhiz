@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function me() { return get(/databases/$(db)/documents/users/$(request.auth.uid)).data; }
+    function admin() { return request.auth != null && me().role == 'admin'; }
+    function insp() { return request.auth != null && me().role == 'inspector' && me().active == true; }
+    match /users/{u} { allow read: if request.auth != null && (request.auth.uid == u || admin()); allow write: if admin(); }
+    match /needs/{n} {
+      allow read: if admin() || (insp() && resource.data.inspectorId == request.auth.uid);
+      allow create: if insp() && request.resource.data.inspectorId == request.auth.uid;
+      allow update, delete: if admin();
+    }
+    match /mosques/{m} { allow read: if admin() || insp(); allow write: if admin(); }
+    match /{col}/{d} { allow read, write: if admin(); }
+  }
+}

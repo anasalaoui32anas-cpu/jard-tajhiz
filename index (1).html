@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>نظام تدبير المساجد – تاونات</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f4f6f5;--c:#fff;--t:#1b2b27;--m:#6b7a76;--p:#0f6b52;--p2:#e3f2ed;--b:#dfe6e3;--r:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#101715;--bg:#101715;--c:#18221f;--t:#e8f0ed;--m:#93a39d;--p:#3fc79b;--p2:#1d2f29;--b:#2a3834}}
+*{box-sizing:border-box}body{margin:0;font-family:Tahoma,"Segoe UI",sans-serif;background:var(--bg);color:var(--t)}
+header{background:var(--p);color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+nav{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px}nav button{background:var(--c);border:1px solid var(--b);color:var(--t);padding:8px 14px;border-radius:20px;cursor:pointer}
+nav button.on{background:var(--p);color:#fff;border-color:var(--p)}
+main{padding:0 16px 40px;max-width:1100px;margin:auto}.card{background:var(--c);border:1px solid var(--b);border-radius:14px;padding:16px;margin:12px 0;overflow-x:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.stat{background:var(--p2);border-radius:12px;padding:14px}.stat b{font-size:26px;display:block;color:var(--p)}
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--b);border-radius:10px;background:var(--bg);color:var(--t);font:inherit;margin:4px 0}
+button.b{background:var(--p);color:#fff;border:0;padding:10px 18px;border-radius:10px;cursor:pointer;font:inherit}button.d{background:var(--r)}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid var(--b);padding:8px;text-align:right;white-space:nowrap}th{background:var(--p2)}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}.login{max-width:360px;margin:12vh auto}.tag{background:var(--p2);color:var(--p);padding:2px 8px;border-radius:8px;font-size:12px}
+</style></head><body>
+<div id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {getAuth,signInWithEmailAndPassword,signOut,onAuthStateChanged,createUserWithEmailAndPassword} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {getFirestore,collection,doc,getDoc,getDocs,setDoc,addDoc,updateDoc,writeBatch,query,where,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {getFunctions,httpsCallable} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
+// ===== ضع إعدادات Firebase هنا =====
+const CFG={apiKey:"YOUR_KEY",authDomain:"YOUR.firebaseapp.com",projectId:"YOUR_ID",appId:"YOUR_APP_ID"};
+const app=initializeApp(CFG),auth=getAuth(app),db=getFirestore(app),fn=getFunctions(app,"europe-west1");
+const $=s=>document.querySelector(s),root=$("#app"),E=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mail=u=>u.trim().toLowerCase()+"@habous.app";
+const CATS=["الحصر","مواد التنظيف","الصيانة والإصلاح","الوضعية المالية","أخرى"];
+let U=null,page="dash";
+const list=async(c,w)=>(await getDocs(w?query(collection(db,c),w):collection(db,c))).docs.map(d=>({id:d.id,...d.data()}));
+
+onAuthStateChanged(auth,async u=>{
+  if(!u){U=null;return login();}
+  const s=await getDoc(doc(db,"users",u.uid));
+  if(!s.exists()||s.data().active===false){await signOut(auth);return login("الحساب غير مفعّل");}
+  U={uid:u.uid,...s.data()};page=U.role==="admin"?"dash":"needs";shell();
+});
+function login(err){root.innerHTML=`<div class="card login"><h2>🕌 نظام تدبير المساجد</h2><p style="color:var(--m)">المندوبية الإقليمية للشؤون الإسلامية بتاونات</p>
+<input id="u" placeholder="اسم المستخدم" autocomplete="username"><input id="p" type="password" placeholder="الرمز السري" autocomplete="current-password">
+<p style="color:var(--r)">${err||""}</p><button class="b" style="width:100%" id="go">دخول</button></div>`;
+  $("#go").onclick=async()=>{try{await signInWithEmailAndPassword(auth,mail($("#u").value),$("#p").value)}catch{login("بيانات الدخول غير صحيحة")}};}
+function shell(){
+  const A=U.role==="admin",tabs=A?[["dash","📊 الإحصائيات"],["import","📥 رفع الملفات"],["archive","🗂️ الأرشيف"],["stock","📦 المخزون"],["dist","🚚 التوزيع"],["needs","📝 جرد المتفقدين"],["users","👥 المتفقدون"]]:[["needs","📝 جرد الحاجيات"]];
+  root.innerHTML=`<header><b>🕌 تدبير المساجد – تاونات</b><span>${E(U.name)} <span class="tag">${A?"مسرف":"متفقد"}</span> <button class="b" id="out" style="padding:4px 10px">خروج</button></span></header>
+  <nav>${tabs.map(t=>`<button data-p="${t[0]}" class="${t[0]===page?"on":""}">${t[1]}</button>`).join("")}</nav><main id="v"></main>`;
+  $("#out").onclick=()=>signOut(auth);
+  document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{page=b.dataset.p;shell()});
+  ({dash,import:imp,archive,stock,dist,needs,users})[page]();}
+const V=h=>$("#v").innerHTML=h;
+const tbl=(h,r)=>`<table><tr>${h.map(x=>`<th>${E(x)}</th>`).join("")}</tr>${r.map(x=>`<tr>${x.map(y=>`<td>${E(y)}</td>`).join("")}</tr>`).join("")}</table>`;
+
+async function dash(){V("جارٍ التحميل…");
+  const[m,r,s,n]=await Promise.all([list("mosques"),list("records"),list("movements"),list("needs")]);
+  const out=s.filter(x=>x.type==="out").reduce((a,x)=>a+(+x.qty||0),0),inn=s.filter(x=>x.type==="in").reduce((a,x)=>a+(+x.qty||0),0);
+  const byY={};r.forEach(x=>byY[x.year]=(byY[x.year]||0)+1);
+  V(`<div class="grid"><div class="stat"><b>${m.length}</b>مسجد/مصلى</div><div class="stat"><b>${r.length}</b>ملف مؤرشف</div><div class="stat"><b>${inn}</b>مدخلات المخزون</div><div class="stat"><b>${out}</b>الموزَّع</div><div class="stat"><b>${inn-out}</b>الرصيد</div><div class="stat"><b>${n.length}</b>جرد المتفقدين</div></div>
+  <div class="card"><h3>الملفات حسب السنة</h3>${tbl(["السنة","عدد الملفات"],Object.entries(byY))}</div>`);}
+
+async function imp(){
+  V(`<div class="card"><h3>رفع ملف Excel (يُحفظ بنفس القالب الأصلي)</h3><div class="row"><select id="cat">${CATS.map(c=>`<option>${c}</option>`).join("")}</select><input id="yr" type="number" value="${new Date().getFullYear()}"><input id="ttl" placeholder="عنوان الملف"></div>
+  <input type="file" id="f" accept=".xlsx,.xls,.csv"><div id="pv"></div><button class="b" id="sv" style="display:none">حفظ في الأرشيف</button> <button class="b" id="tk" style="display:none">حفظ + تحويل إلى مخزون وتوزيع</button></div>`);
+  let rows=null;
+  $("#f").onchange=async e=>{const f=e.target.files[0];if(!f)return;const wb=XLSX.read(await f.arrayBuffer());const ws=wb.Sheets[wb.SheetNames[0]];
+    rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""}).filter(r=>r.some(c=>c!==""));$("#ttl").value=$("#ttl").value||f.name.replace(/\.\w+$/,"");
+    $("#pv").innerHTML=tbl(rows[0].map((_,i)=>"ع"+(i+1)),rows.slice(0,8));$("#sv").style.display=$("#tk").style.display="";};
+  const save=async()=>{const x=await addDoc(collection(db,"records"),{year:+$("#yr").value,category:$("#cat").value,title:$("#ttl").value,rows:JSON.stringify(rows),by:U.name,ts:serverTimestamp()});return x.id};
+  $("#sv").onclick=async()=>{await save();alert("تم الحفظ في الأرشيف");};
+  $("#tk").onclick=async()=>{ // تحديد صف الرؤوس: أول صف فيه نص في ≥3 خانات تليه أرقام
+    const hi=rows.findIndex(r=>r.filter(c=>typeof c==="string"&&c.trim()).length>=3);const H=rows[hi].map(x=>String(x).trim());
+    const iC=H.findIndex(h=>/رمز/.test(h)),iN=H.findIndex(h=>/المسجد|المصلى|اسم/.test(h)),iG=H.findIndex(h=>/الجماعة/.test(h));
+    const items=H.map((h,i)=>({h,i})).filter(x=>x.i!==iC&&x.i!==iN&&x.i!==iG&&x.h&&!/^(ر,ت|الرقم|ر\.ت)$/.test(x.h));
+    if(iC<0){return alert("لم أجد عمود «رمز المسجد» – احفظ في الأرشيف فقط.")}
+    const id=await save(),yr=+$("#yr").value,cat=$("#cat").value;let ops=[];
+    for(const r of rows.slice(hi+1)){const code=String(r[iC]).trim();if(!/^\d{6,}$/.test(code))continue;
+      ops.push(["mosques/"+code,{code,name:String(r[iN]||"").trim(),commune:String(r[iG]||"").trim()}]);
+      for(const it of items){const q=+r[it.i];if(q>0)ops.push([null,{type:"out",item:it.h,category:cat,qty:q,mosque:code,mosqueName:String(r[iN]||"").trim(),year:yr,rec:id,ts:Date.now()}]);}}
+    for(let i=0;i<ops.length;i+=400){const b=writeBatch(db);ops.slice(i,i+400).forEach(([p,d])=>p?b.set(doc(db,p),d,{merge:true}):b.set(doc(collection(db,"movements")),d));await b.commit();}
+    alert("تم: "+ops.length+" عملية");};}
+
+async function archive(){V("…");const r=await list("records");
+  V(`<div class="card"><div class="row"><select id="fy"><option value="">كل السنوات</option>${[...new Set(r.map(x=>x.year))].sort().map(y=>`<option>${y}</option>`).join("")}</select><select id="fc"><option value="">كل الأصناف</option>${CATS.map(c=>`<option>${c}</option>`).join("")}</select></div><div id="ar"></div><div id="op"></div></div>`);
+  const draw=()=>{const y=$("#fy").value,c=$("#fc").value;$("#ar").innerHTML=tbl(["السنة","الصنف","العنوان","بواسطة",""],r.filter(x=>(!y||x.year==y)&&(!c||x.category===c)).map(x=>[x.year,x.category,x.title,x.by,"فتح"]));
+    [...$("#ar").querySelectorAll("tr")].slice(1).forEach((tr,i)=>{const x=r.filter(x=>(!y||x.year==y)&&(!c||x.category===c))[i];tr.lastChild.innerHTML=`<button class="b">عرض</button> <button class="b" data-x>⬇ Excel</button>`;
+      tr.querySelector("button").onclick=()=>$("#op").innerHTML="<h3>"+E(x.title)+"</h3>"+tbl(JSON.parse(x.rows)[0].map((_,i)=>i+1),JSON.parse(x.rows));
+      tr.querySelector("[data-x]").onclick=()=>{const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(JSON.parse(x.rows)),"Feuil1");XLSX.writeFile(wb,x.title+".xlsx")}});};
+  $("#fy").onchange=$("#fc").onchange=draw;draw();}
+
+async function stock(){V("…");const s=await list("movements"),a={};
+  s.forEach(x=>{const k=x.item;a[k]=a[k]||{i:0,o:0};a[k][x.type==="in"?"i":"o"]+=+x.qty||0});
+  V(`<div class="card"><h3>إدخال إلى المخزون</h3><div class="row"><input id="it" placeholder="المادة"><input id="q" type="number" placeholder="الكمية"><input id="ye" type="number" value="${new Date().getFullYear()}"><button class="b" id="ad">إضافة</button></div></div>
+  <div class="card"><h3>جرد المخزون</h3>${tbl(["المادة","الوارد","الموزَّع","الرصيد"],Object.entries(a).map(([k,v])=>[k,v.i,v.o,v.i-v.o]))}</div>`);
+  $("#ad").onclick=async()=>{await addDoc(collection(db,"movements"),{type:"in",item:$("#it").value,qty:+$("#q").value,year:+$("#ye").value,ts:Date.now()});stock()};}
+
+async function dist(){V("…");const s=(await list("movements")).filter(x=>x.type==="out");
+  V(`<div class="card"><input id="sq" placeholder="بحث باسم المسجد أو الرمز أو المادة"><div id="dt"></div></div>`);
+  const d=()=>{const q=$("#sq").value;$("#dt").innerHTML=tbl(["السنة","المسجد","الرمز","المادة","الكمية"],s.filter(x=>!q||JSON.stringify(x).includes(q)).slice(0,300).map(x=>[x.year,x.mosqueName,x.mosque,x.item,x.qty]))};$("#sq").oninput=d;d();}
+
+const FIELDS=["حصير (متر مربع)","ماء جافيل","منظف","صابون","مكنسة","ممسحة","زرابي","إنارة","تجهيزات صوتية","صيانة مطلوبة"];
+async function needs(){V("…");const A=U.role==="admin",m=await list("mosques"),n=await list("needs",A?null:where("inspectorId","==",U.uid));
+  V(`${A?"":`<div class="card"><h3>جرد جديد</h3><select id="ms">${m.map(x=>`<option value="${x.code}">${E(x.name)} – ${x.code}</option>`).join("")}</select>
+  <div class="row"><input type="file" id="img" accept="image/*" capture="environment"><button class="b" id="ai">🤖 تفريغ الصورة بالذكاء الاصطناعي</button></div>
+  <div class="grid">${FIELDS.map((f,i)=>`<label>${f}<input data-f="${f}" type="${i==9?"text":"number"}"></label>`).join("")}</div><textarea id="nt" placeholder="ملاحظات"></textarea><button class="b" id="sv">حفظ الجرد</button></div>`}
+  <div class="card"><h3>${A?"كل عمليات الجرد":"جرودي"}</h3>${tbl(["المسجد","المتفقد","السنة",...FIELDS.slice(0,5)],n.map(x=>[x.mosque,x.inspector,x.year,...FIELDS.slice(0,5).map(f=>x.data?.[f]??"")]))}</div>`);
+  if(A)return;
+  $("#ai").onclick=async()=>{const f=$("#img").files[0];if(!f)return alert("اختر صورة");$("#ai").textContent="جارٍ التحليل…";
+    const b=await new Promise(r=>{const x=new FileReader;x.onload=()=>r(x.result.split(",")[1]);x.readAsDataURL(f)});
+    try{const r=(await httpsCallable(fn,"scanImage")({image:b,mime:f.type,fields:FIELDS})).data;
+      document.querySelectorAll("[data-f]").forEach(i=>{if(r[i.dataset.f]!=null)i.value=r[i.dataset.f]});if(r.notes)$("#nt").value=r.notes;}catch(e){alert("تعذر التحليل: "+e.message)}
+    $("#ai").textContent="🤖 تفريغ الصورة بالذكاء الاصطناعي";};
+  $("#sv").onclick=async()=>{const data={};document.querySelectorAll("[data-f]").forEach(i=>{if(i.value)data[i.dataset.f]=i.type==="number"?+i.value:i.value});
+    await addDoc(collection(db,"needs"),{mosque:$("#ms").value,inspectorId:U.uid,inspector:U.name,year:new Date().getFullYear(),data,notes:$("#nt").value,ts:serverTimestamp()});needs();};}
+
+async function users(){V("…");const u=(await list("users")).filter(x=>x.role==="inspector");
+  V(`<div class="card"><h3>إضافة متفقد</h3><div class="row"><input id="nn" placeholder="الاسم الكامل"><input id="nu" placeholder="اسم المستخدم (لاتيني)"><input id="np" placeholder="الرمز السري (6+)"><button class="b" id="ad">إنشاء</button></div></div>
+  <div class="card">${tbl(["الاسم","المستخدم","الحالة"],u.map(x=>[x.name,x.username,x.active?"مفعّل":"موقوف"]))}<div id="ac"></div></div>`);
+  $("#ac").innerHTML=u.map(x=>`<button class="b ${x.active?"d":""}" data-id="${x.id}" data-a="${x.active}">${x.active?"إيقاف":"تفعيل"} ${E(x.name)}</button> `).join("");
+  $("#ac").querySelectorAll("button").forEach(b=>b.onclick=async()=>{await updateDoc(doc(db,"users",b.dataset.id),{active:b.dataset.a!=="true"});users()});
+  $("#ad").onclick=async()=>{try{const sec=initializeApp(CFG,"s"+Date.now()),c=await createUserWithEmailAndPassword(getAuth(sec),mail($("#nu").value),$("#np").value);
+    await setDoc(doc(db,"users",c.user.uid),{name:$("#nn").value,username:$("#nu").value.trim().toLowerCase(),role:"inspector",active:true});users();}catch(e){alert(e.message)}};}
+</script></body></html>
